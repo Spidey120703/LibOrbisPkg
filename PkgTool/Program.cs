@@ -272,6 +272,93 @@ namespace PkgTool
           }
         }),
       Verb.Create(
+        "pkg_info",
+        "Print the information of PKG file and exit.",
+        ArgDef.Required("input.pkg"),
+        args =>
+        {
+          var pkgPath = args[1];
+          Action<string, string> PrintKeyValue = (string key, string value) => Console.WriteLine(key.PadLeft(16) + ": " + value);
+          Func<long, string> HumanReadableFileSize = (long size) =>
+          {
+            if (size > (1024 * 1024 * 1024))
+            {
+              return (size / (double)(1024 * 1024 * 1024)).ToString("0.#") + " GiB";
+            }
+            else if (size > (1024 * 1024))
+            {
+              return (size / (double)(1024 * 1024)).ToString("0.#") + " MiB";
+            }
+            else if (size > 1024)
+            {
+              return (size / 1024.0).ToString("0.#") + " KiB";
+            }
+            else
+            {
+              return size.ToString() + " B";
+            }
+          };
+          var OutputEncoding = Console.OutputEncoding;
+          Console.OutputEncoding = Encoding.UTF8;
+          using(var file = File.OpenRead(pkgPath))
+          {
+            var pkg = new PkgReader(file).ReadPkg();
+            PrintKeyValue("Content ID", pkg.Header.content_id);
+            PrintKeyValue("Title", pkg.ParamSfo.ParamSfo["TITLE"]?.ToString());
+            var category = pkg.ParamSfo.ParamSfo["CATEGORY"].ToString();
+            PrintKeyValue("Type", SfoData.SfoTypes.Where(x => x.Category == category).FirstOrDefault() is SfoType t ? t.Description : "Unknown");
+            PrintKeyValue("Size", HumanReadableFileSize((long)pkg.Header.package_size));
+            PrintKeyValue("PKG Version", pkg.ParamSfo.ParamSfo["VERSION"]?.ToString());
+            if (pkg.ParamSfo.ParamSfo["APP_VER"] is Utf8Value v)
+            {
+              PrintKeyValue("App Version", v?.ToString());
+            }
+            PrintKeyValue("Version Date", $"{pkg.Header.version_date >> 16:x4}-{(pkg.Header.version_date >> 8) & 0xff:x2}-{pkg.Header.version_date & 0xff:x2}");
+          }
+          Console.OutputEncoding = OutputEncoding;
+        }),
+      Verb.Create(
+        "pkg_getnormalizedname",
+        "Print the normalized name (UP0000-CUSA00000-GAMENAME00000000-A0000-V0000.pkg) of PKG file and exit.",
+        ArgDef.Multi(ArgDef.Bool("apply"), "input.pkg"),
+        (option, args) =>
+        {
+          var pkgPath = args[1];
+          var pkgName = new StringBuilder();
+          using(var file = File.OpenRead(pkgPath))
+          {
+            var pkg = new PkgReader(file).ReadPkg();
+            pkgName.Append(pkg.Header.content_id);
+            pkgName.Append("-A");
+            if (pkg.ParamSfo.ParamSfo["APP_VER"] is Utf8Value v)
+            {
+              pkgName.Append(v?.ToString().Replace(".", ""));
+            }
+            else
+            {
+              pkgName.Append("0000");
+            }
+            pkgName.Append("-V");
+            pkgName.Append(pkg.ParamSfo.ParamSfo["VERSION"]?.ToString().Replace(".", ""));
+            pkgName.Append(".pkg");
+          }
+          if (option["apply"])
+          {
+            var newPath = Path.Combine(Path.GetDirectoryName(pkgPath), pkgName.ToString());
+            if (File.Exists(newPath))
+            {
+              Console.WriteLine($"Error: cannot rename file because {newPath} already exists.");
+              return;
+            }
+            File.Move(pkgPath, newPath);
+            Console.WriteLine($"\"{pkgPath}\" -> \"{newPath}\"");
+          }
+          else
+          {
+            Console.WriteLine(pkgName.ToString());
+          }
+        }),
+      Verb.Create(
         "pkg_extractentry",
         "Extracts the selected entry from the given PKG file.",
         ArgDef.Multi(ArgDef.Option("passcode"), "input.pkg", "entry_id", "output.bin"),
